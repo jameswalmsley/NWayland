@@ -3,11 +3,33 @@ using System.Collections.Generic;
 using System.Linq;
 using NWayland.Interop;
 using NWayland.Protocols.Wayland;
+using NWayland.Protocols.XdgShell;
+using static SimpleWindow.LinuxUnsafeMethods;
+
+using System.IO;
+using System.IO.MemoryMappedFiles;
 
 namespace SimpleWindow
 {
     unsafe class Program
     {
+        static WlBuffer create_buffer(WlShm shm, int width, int height) {
+            int stride = width * 4;
+            int size = stride*height;
+
+            string name = "my_shared_mem";
+            int fd = shm_open(name, FdFlags.O_RDWR | FdFlags.O_CREAT | FdFlags.O_EXCL, 0600);
+            if(fd < 0) {
+                Console.WriteLine("Bas shm_opem()");
+            }
+            shm_unlink(name);
+            ftruncate(fd, (uint) size);
+
+
+            var pool = shm.CreatePool((int) fd, (int) size);
+            return pool.CreateBuffer(0, width, height, stride, WlShm.FormatEnum.Xrgb8888);
+        }
+
         static void Main(string[] args)
         {
             var display = WlDisplay.Connect(null);
@@ -18,19 +40,43 @@ namespace SimpleWindow
             display.Roundtrip();
             var globals = registryHandler.GetGlobals();
 
-            var compositor = registryHandler.Bind(WlCompositor.BindFactory, WlCompositor.InterfaceName,
-                WlCompositor.InterfaceVersion);
+
+            var shm = registryHandler.Bind(WlShm.BindFactory, WlShm.InterfaceName, WlShm.InterfaceVersion);
+
+            var buffer = create_buffer(shm, 640, 480);
+
+            var compositor = registryHandler.Bind(WlCompositor.BindFactory, WlCompositor.InterfaceName, 4);
             
             display.Roundtrip();
-            var shell = registryHandler.Bind(WlShell.BindFactory, WlShell.InterfaceName, WlShell.InterfaceVersion);
+            var shell = registryHandler.Bind(XdgWmBase.BindFactory, XdgWmBase.InterfaceName, 2);
             
             display.Roundtrip();
             var surface = compositor.CreateSurface();
-            var shellSurface = shell.GetShellSurface(surface);
-            shellSurface.SetTitle("Test");
+            var shellSurface = shell.GetXdgSurface(surface);
+            var toplevel = shellSurface.GetToplevel();
+
+            var _region = compositor.CreateRegion(); 
+            _region.Add(0, 0, 640, 480);
+
+            surface.SetOpaqueRegion(_region);
+
+            var xdgSurfaceHandler = new XdgSurfaceHandler(shellSurface);
+            shellSurface.Events = xdgSurfaceHandler;
+
+            var xdgTopLevelHandler = new XdgTopLevelHandler(toplevel);
+            toplevel.Events = xdgTopLevelHandler;
+
             surface.Commit();
-            display.Dispatch();
             display.Roundtrip();
+
+            toplevel.SetTitle("Test");
+            shellSurface.SetWindowGeometry(0, 0, 640, 480);
+            surface.Attach(buffer, 0, 0);
+            surface.Commit();
+            while(true) {
+                display.Dispatch();
+                display.Roundtrip();
+            }
         }
     }
 
@@ -49,7 +95,43 @@ namespace SimpleWindow
 
         public override string ToString() => $"{Interface} version {Version} at {Name}";
     }
-    
+
+    internal class XdgSurfaceHandler : XdgSurface.IEvents
+    {
+        private XdgSurface _xdg_surface;
+
+        public XdgSurfaceHandler(XdgSurface xdg_surface)
+        {
+            _xdg_surface = xdg_surface;
+        }
+
+        public void OnConfigure(NWayland.Protocols.XdgShell.XdgSurface eventSender, uint @serial) {
+            _xdg_surface.AckConfigure(serial);
+            Console.WriteLine("Hello from AckConfiure");
+        }
+    }
+
+    internal class XdgTopLevelHandler : XdgToplevel.IEvents
+    {
+        private XdgToplevel _top_level;
+
+        public XdgTopLevelHandler(XdgToplevel top_level)
+        {
+            _top_level = top_level;
+        }
+
+        public void OnClose(XdgToplevel eventSender)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void OnConfigure(XdgToplevel eventSender, int width, int height, ReadOnlySpan<byte> states)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+
     internal class RegistryHandler : WlRegistry.IEvents
     {
         private readonly WlRegistry _registry;
