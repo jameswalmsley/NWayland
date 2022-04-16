@@ -8,6 +8,7 @@ namespace NWayland.Interop
     public static unsafe class LibWayland
     {
         private const string Wayland = "libwayland-client.so.0";
+        private const string WaylandEgl = "libwayland-egl.so.1";
 
         [DllImport(Wayland, SetLastError = true)]
         public static extern IntPtr wl_display_connect(string? name);
@@ -39,13 +40,22 @@ namespace NWayland.Interop
         [DllImport(Wayland)]
         private static extern uint wl_proxy_get_id(IntPtr proxy);
 
+        [DllImport(WaylandEgl)]
+        public static extern IntPtr wl_egl_window_create(IntPtr surface, int width, int height);
+
+        [DllImport(WaylandEgl)]
+        public static extern IntPtr wl_egl_window_resize(IntPtr window, int width, int heighti, int dx, int dy);
+
+        [DllImport(WaylandEgl)]
+        public static extern void wl_egl_window_destroy(IntPtr window);
+
         private delegate int WlProxyDispatcherDelegate(IntPtr implementation, IntPtr target, uint opcode, ref WlMessage message, WlArgument* argument);
 
         private static readonly Dictionary<uint, WeakReference<WlProxy>> Proxies = new();
 
         private static int WlProxyDispatcher(IntPtr implementation, IntPtr target, uint opcode, ref WlMessage message, WlArgument* arguments)
         {
-            var id = ((UIntPtr) implementation.ToPointer()).ToUInt32();
+            var id = ((UIntPtr)implementation.ToPointer()).ToUInt32();
 
             WlProxy proxy;
             lock (Proxies)
@@ -130,14 +140,14 @@ namespace NWayland.Interop
         public static WlMessage Create(string name, string signature, WlInterface*[]? types)
         {
             types ??= OneNullType;
-            var pTypes = (WlInterface**) Marshal.AllocHGlobal(IntPtr.Size * types.Length);
+            var pTypes = (WlInterface**)Marshal.AllocHGlobal(IntPtr.Size * types.Length);
             for (var c = 0; c < types.Length; c++)
                 pTypes[c] = types[c];
 
             return new WlMessage
             {
-                Name = (byte*) Marshal.StringToHGlobalAnsi(name),
-                Signature = (byte*) Marshal.StringToHGlobalAnsi(signature),
+                Name = (byte*)Marshal.StringToHGlobalAnsi(name),
+                Signature = (byte*)Marshal.StringToHGlobalAnsi(signature),
                 Types = pTypes
             };
         }
@@ -163,7 +173,7 @@ namespace NWayland.Interop
         {
             if (arr == null || arr.Length == 0)
                 return null;
-            var ptr = (T*) Marshal.AllocHGlobal(sizeof(T) * arr.Length);
+            var ptr = (T*)Marshal.AllocHGlobal(sizeof(T) * arr.Length);
             for (var c = 0; c < arr.Length; c++)
                 ptr[c] = arr[c];
             return ptr;
@@ -171,7 +181,7 @@ namespace NWayland.Interop
 
         public void Init(string name, int version, WlMessage[]? methods, WlMessage[]? events)
         {
-            Name = (byte*) Marshal.StringToHGlobalAnsi(name);
+            Name = (byte*)Marshal.StringToHGlobalAnsi(name);
             Version = version;
             MethodCount = methods?.Length ?? 0;
             Methods = UnmanagedCopy(methods);
@@ -195,7 +205,7 @@ namespace NWayland.Interop
         public static implicit operator WlArgument(IntPtr value) => new() { IntPtr = value };
         public static implicit operator WlArgument(WlProxy value) => new() { IntPtr = value.Handle };
         public static implicit operator WlArgument(SafeHandle? value) => new() { IntPtr = value?.DangerousGetHandle() ?? IntPtr.Zero };
-        public static implicit operator WlArgument(WlArray* value) => new() { IntPtr = (IntPtr) value };
+        public static implicit operator WlArgument(WlArray* value) => new() { IntPtr = (IntPtr)value };
 
         public static readonly WlArgument NewId;
     }
@@ -208,7 +218,7 @@ namespace NWayland.Interop
         public IntPtr Data;
 
         public static Span<T> SpanFromWlArrayPtr<T>(IntPtr wlArrayPointer) where T : unmanaged
-            => wlArrayPointer == IntPtr.Zero ? Span<T>.Empty : ((WlArray*) wlArrayPointer.ToPointer())->AsSpan<T>();
+            => wlArrayPointer == IntPtr.Zero ? Span<T>.Empty : ((WlArray*)wlArrayPointer.ToPointer())->AsSpan<T>();
 
         public Span<T> AsSpan<T>() where T : unmanaged
         {
@@ -223,7 +233,7 @@ namespace NWayland.Interop
             {
                 Size = size,
                 Alloc = size,
-                Data = (IntPtr) ptr
+                Data = (IntPtr)ptr
             };
         }
     }
