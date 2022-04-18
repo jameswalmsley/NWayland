@@ -9,6 +9,7 @@ namespace NWayland.Interop
     {
         private const string Wayland = "libwayland-client.so.0";
         private const string WaylandEgl = "libwayland-egl.so.1";
+        private const string libWaylandCursor = "libwayland-cursor.so.0";
 
         [DllImport(Wayland, SetLastError = true)]
         public static extern IntPtr wl_display_connect(string? name);
@@ -51,6 +52,15 @@ namespace NWayland.Interop
 
         [DllImport(WaylandEgl)]
         public static extern void wl_egl_window_destroy(IntPtr window);
+
+        [DllImport(libWaylandCursor)]
+        public static extern IntPtr wl_cursor_theme_load(string? name, int size, IntPtr shm);
+
+        [DllImport(libWaylandCursor)]
+        public static extern void wl_cursor_theme_destroy(IntPtr theme);
+
+        [DllImport(libWaylandCursor)]
+        public static extern IntPtr wl_cursor_theme_get_cursor(IntPtr theme, string? name);
 
         private delegate int WlProxyDispatcherDelegate(IntPtr implementation, IntPtr target, uint opcode, ref WlMessage message, WlArgument* argument);
 
