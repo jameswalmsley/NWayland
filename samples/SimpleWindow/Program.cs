@@ -1,81 +1,143 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NWayland.Interop;
 using NWayland.Protocols.Wayland;
 using NWayland.Protocols.XdgShell;
+using NWayland.OpenGL;
+using NWayland.OpenGL.EGL;
+using static NWayland.OpenGL.GlConsts;
+using static NWayland.OpenGL.EGL.EglConsts;
+using static NWayland.OpenGL.EGL.OpenGLMethods;
 using static SimpleWindow.LinuxUnsafeMethods;
-
-using System.IO;
-using System.IO.MemoryMappedFiles;
 
 namespace SimpleWindow
 {
     unsafe class Program
     {
-        static WlBuffer create_buffer(WlShm shm, int width, int height) {
+        static WlBuffer create_buffer(WlShm shm, int width, int height)
+        {
             int stride = width * 4;
-            int size = stride*height;
+            int size = stride * height;
 
             string name = "my_shared_mem";
             int fd = shm_open(name, FdFlags.O_RDWR | FdFlags.O_CREAT | FdFlags.O_EXCL, 0600);
-            if(fd < 0) {
+            if (fd < 0)
+            {
                 Console.WriteLine("Bas shm_opem()");
             }
             shm_unlink(name);
-            ftruncate(fd, (uint) size);
+            ftruncate(fd, (uint)size);
 
 
-            var pool = shm.CreatePool((int) fd, (int) size);
+            var pool = shm.CreatePool((int)fd, (int)size);
             return pool.CreateBuffer(0, width, height, stride, WlShm.FormatEnum.Xrgb8888);
         }
 
         static void Main(string[] args)
         {
-            var display = WlDisplay.Connect(null);
+            var display = WlDisplay.Connect();
             var registry = display.GetRegistry();
             var registryHandler = new RegistryHandler(registry);
             registry.Events = registryHandler;
             display.Dispatch();
             display.Roundtrip();
-            var globals = registryHandler.GetGlobals();
 
 
-            var shm = registryHandler.Bind(WlShm.BindFactory, WlShm.InterfaceName, WlShm.InterfaceVersion);
-
-            var buffer = create_buffer(shm, 640, 480);
-
-            var compositor = registryHandler.Bind(WlCompositor.BindFactory, WlCompositor.InterfaceName, 4);
-            
+            var compositor = registryHandler.Bind(WlCompositor.BindFactory, WlCompositor.InterfaceName, WlCompositor.InterfaceVersion);
+            var shell = registryHandler.Bind(XdgWmBase.BindFactory, XdgWmBase.InterfaceName, XdgWmBase.InterfaceVersion);
             display.Roundtrip();
-            var shell = registryHandler.Bind(XdgWmBase.BindFactory, XdgWmBase.InterfaceName, 2);
-            
-            display.Roundtrip();
-            var surface = compositor.CreateSurface();
-            var shellSurface = shell.GetXdgSurface(surface);
-            var toplevel = shellSurface.GetToplevel();
 
-            var _region = compositor.CreateRegion(); 
+            shell.Events = new XdgWmBaseHandler();
+
+            var wl_surface = compositor.CreateSurface();
+
+            var xdgSurface = shell.GetXdgSurface(wl_surface);
+            xdgSurface.Events = new XdgSurfaceHandler(xdgSurface);
+
+            var xdgToplevel = xdgSurface.GetToplevel();
+            xdgToplevel.Events = new XdgTopLevelHandler(xdgToplevel);
+
+            xdgToplevel.SetTitle("Test");
+
+            // xdgSurface.SetWindowGeometry(0, 0, 640, 480);
+
+            var _region = compositor.CreateRegion();
             _region.Add(0, 0, 640, 480);
 
-            surface.SetOpaqueRegion(_region);
+            wl_surface.SetOpaqueRegion(_region);
 
-            var xdgSurfaceHandler = new XdgSurfaceHandler(shellSurface);
-            shellSurface.Events = xdgSurfaceHandler;
-
-            var xdgTopLevelHandler = new XdgTopLevelHandler(toplevel);
-            toplevel.Events = xdgTopLevelHandler;
-
-            surface.Commit();
+            wl_surface.Commit();
             display.Roundtrip();
 
-            toplevel.SetTitle("Test");
-            shellSurface.SetWindowGeometry(0, 0, 640, 480);
-            surface.Attach(buffer, 0, 0);
-            surface.Commit();
-            while(true) {
-                display.Dispatch();
-                display.Roundtrip();
+
+
+            IntPtr egl_context = IntPtr.Zero;
+            IntPtr egl_surface = IntPtr.Zero;
+
+#if true
+            bool use_egl = true;
+            var wl_egl_window = LibWayland.wl_egl_window_create(wl_surface.Handle, 640, 480);
+            Console.WriteLine($"wl_egl_window_create() -> {wl_egl_window}");
+
+
+
+            var egl_display = eglGetDisplay(display.Handle);
+
+            int major, minor;
+
+            var ret = eglInitialize(egl_display, out major, out minor);
+            Console.WriteLine($"eglInitialize returned: {ret}");
+            Console.WriteLine($"Initialized eGL with: v{major}.{minor}");
+
+            var attribs = new[]
+            {
+                EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                EGL_RED_SIZE, 8,
+                EGL_GREEN_SIZE, 8,
+                EGL_BLUE_SIZE, 8,
+                // EGL_ALPHA_SIZE, 8,
+                EGL_NONE, EGL_NONE
+            };
+
+            IntPtr _egl_config;
+            int chosen_config;
+            ret = eglChooseConfig(egl_display, attribs, out _egl_config, 1, out chosen_config);
+            Console.WriteLine($"ChosenConfig: {ret} : {chosen_config} : {_egl_config}");
+
+            egl_surface = eglCreateWindowSurface(egl_display, _egl_config, wl_egl_window, null);//new[] { EGL_NONE, EGL_NONE });
+            Console.WriteLine($"Got an egl_surface: {egl_surface}");
+
+            var contextAttribs = new[]
+            {
+                EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE, EGL_NONE
+            };
+
+            egl_context = eglCreateContext(egl_display, _egl_config, EGL_NO_CONTEXT, contextAttribs);
+            Console.WriteLine($"Got an egl_context: {egl_context}");
+
+            ret = eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context);
+            Console.WriteLine($"eglMakeCurrent()  returned: {ret}");
+
+#else 
+            bool use_egl = false;
+            var shm = registryHandler.Bind(WlShm.BindFactory, WlShm.InterfaceName, WlShm.InterfaceVersion);
+            var buffer = create_buffer(shm, 640, 480);
+            Console.WriteLine($"wl_buffer  version {buffer.Version}");
+            wl_surface.Attach(buffer, 640, 480);
+#endif 
+            wl_surface.Commit();
+            display.Roundtrip();
+            while(true)
+            {
+                display.DispatchPending();
+                if(use_egl)
+                {
+                    glClearColor(0.5f, 0.3f, 0.0f, 0.9f); 
+                    glClear(GL_COLOR_BUFFER_BIT);
+                    eglSwapBuffers(egl_display, egl_surface);
+                }
             }
         }
     }
@@ -96,6 +158,14 @@ namespace SimpleWindow
         public override string ToString() => $"{Interface} version {Version} at {Name}";
     }
 
+    internal class XdgWmBaseHandler : XdgWmBase.IEvents
+    {
+        public void OnPing(XdgWmBase eventSender, uint serial)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
     internal class XdgSurfaceHandler : XdgSurface.IEvents
     {
         private XdgSurface _xdg_surface;
@@ -105,7 +175,8 @@ namespace SimpleWindow
             _xdg_surface = xdg_surface;
         }
 
-        public void OnConfigure(NWayland.Protocols.XdgShell.XdgSurface eventSender, uint @serial) {
+        public void OnConfigure(NWayland.Protocols.XdgShell.XdgSurface eventSender, uint @serial)
+        {
             _xdg_surface.AckConfigure(serial);
             Console.WriteLine("Hello from AckConfiure");
         }
@@ -161,11 +232,11 @@ namespace SimpleWindow
             version ??= factory.GetInterface()->Version;
             if (version > factory.GetInterface()->Version)
                 throw new ArgumentException($"Version {version} is not supported");
-            
+
             if (glob.Version < version)
                 throw new NotSupportedException(
                     $"Compositor doesn't support {version} of {iface}, only {glob.Version} is supported");
-            
+
             return _registry.Bind(glob.Name, factory, version.Value);
         }
     }

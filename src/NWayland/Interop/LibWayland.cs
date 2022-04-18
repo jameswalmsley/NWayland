@@ -17,6 +17,9 @@ namespace NWayland.Interop
         public static extern int wl_display_dispatch(IntPtr display);
 
         [DllImport(Wayland, SetLastError = true)]
+        public static extern int wl_display_dispatch_pending(IntPtr display);
+
+        [DllImport(Wayland, SetLastError = true)]
         public static extern int wl_display_roundtrip(IntPtr display);
 
         [DllImport(Wayland)]

@@ -19,8 +19,7 @@ namespace SimpleWindow
         public static extern int ioctl(int fd, FbIoCtl code, void* arg);
 
         [DllImport("libc", EntryPoint = "mmap", SetLastError = true)]
-        public static extern IntPtr mmap(IntPtr addr, uint length, int prot, int flags,
-            int fd, int offset);
+        public static extern IntPtr mmap(IntPtr addr, uint length, int prot, int flags, int fd, int offset);
 
         [DllImport("libc", EntryPoint = "munmap", SetLastError = true)]
         public static extern int munmap(IntPtr addr, IntPtr length);
