@@ -3059,13 +3059,15 @@ namespace NWayland.Protocols.Wayland
 
         static WlOutput()
         {
-            WlInterface.Init("wl_output", 3, new WlMessage[] {
+            WlInterface.Init("wl_output", 4, new WlMessage[] {
                 WlMessage.Create("release", "3", new WlInterface*[] { })
             }, new WlMessage[] {
                 WlMessage.Create("geometry", "iiiiissi", new WlInterface*[] { null, null, null, null, null, null, null, null }),
                 WlMessage.Create("mode", "uiii", new WlInterface*[] { null, null, null, null }),
                 WlMessage.Create("done", "2", new WlInterface*[] { }),
-                WlMessage.Create("scale", "2i", new WlInterface*[] { null })
+                WlMessage.Create("scale", "2i", new WlInterface*[] { null }),
+                WlMessage.Create("name", "4s", new WlInterface*[] { null }),
+                WlMessage.Create("description", "4s", new WlInterface*[] { null })
             });
         }
 
@@ -3089,6 +3091,8 @@ namespace NWayland.Protocols.Wayland
             void OnMode(NWayland.Protocols.Wayland.WlOutput eventSender, ModeEnum @flags, int @width, int @height, int @refresh);
             void OnDone(NWayland.Protocols.Wayland.WlOutput eventSender);
             void OnScale(NWayland.Protocols.Wayland.WlOutput eventSender, int @factor);
+            void OnName(NWayland.Protocols.Wayland.WlOutput eventSender, System.String @name);
+            void OnDescription(NWayland.Protocols.Wayland.WlOutput eventSender, System.String @description);
         }
 
         public IEvents Events { get; set; }
@@ -3103,6 +3107,10 @@ namespace NWayland.Protocols.Wayland
                 Events?.OnDone(this);
             if (opcode == 3)
                 Events?.OnScale(this, arguments[0].Int32);
+            if (opcode == 4)
+                Events?.OnName(this, System.Runtime.InteropServices.Marshal.PtrToStringAnsi(arguments[0].IntPtr));
+            if (opcode == 5)
+                Events?.OnDescription(this, System.Runtime.InteropServices.Marshal.PtrToStringAnsi(arguments[0].IntPtr));
         }
 
         /// <summary>
@@ -3187,7 +3195,7 @@ namespace NWayland.Protocols.Wayland
         public static IBindFactory<WlOutput> BindFactory { get; } = new ProxyFactory();
 
         public const string InterfaceName = "wl_output";
-        public const int InterfaceVersion = 3;
+        public const int InterfaceVersion = 4;
 
         public WlOutput(IntPtr handle, int version, NWayland.Protocols.Wayland.WlDisplay display) : base(handle, version, display)
         {
