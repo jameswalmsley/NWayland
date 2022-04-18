@@ -381,6 +381,12 @@ namespace NWayland.Protocols.Wayland
         /// for the pool from the file descriptor passed when the pool was
         /// created, but using the new size.  This request can only be
         /// used to make the pool bigger.
+        /// 
+        /// This request only changes the amount of bytes that are mmapped
+        /// by the server and does not touch the file corresponding to the
+        /// file descriptor passed at creation time. It is the client's
+        /// responsibility to ensure that the file is at least as big as
+        /// the new pool size.
         /// </summary>
         public void Resize(int @size)
         {
@@ -430,8 +436,8 @@ namespace NWayland.Protocols.Wayland
     /// Clients can create wl_shm_pool objects using the create_pool
     /// request.
     /// 
-    /// At connection setup time, the wl_shm object emits one or more
-    /// format events to inform clients about the valid pixel formats
+    /// On binding the wl_shm object one or more format events
+    /// are emitted to inform clients about the valid pixel formats
     /// that can be used for buffers.
     /// </summary>
     public sealed unsafe partial class WlShm : NWayland.Protocols.Wayland.WlProxy
@@ -507,6 +513,9 @@ namespace NWayland.Protocols.Wayland
         /// The drm format codes match the macros defined in drm_fourcc.h, except
         /// argb8888 and xrgb8888. The formats actually supported by the compositor
         /// will be reported by the format event.
+        /// 
+        /// For all wl_shm formats and unless specified in another protocol
+        /// extension, pre-multiplied alpha is used for pixel values.
         /// </summary>
         public enum FormatEnum
         {
@@ -699,7 +708,21 @@ namespace NWayland.Protocols.Wayland
             /// <summary>2x2 subsampled Cr:Cb plane 12 bits per channel</summary>
             P012 = 0x32313050,
             /// <summary>2x2 subsampled Cr:Cb plane 16 bits per channel</summary>
-            P016 = 0x36313050
+            P016 = 0x36313050,
+            /// <summary>[63:0] A:x:B:x:G:x:R:x 10:6:10:6:10:6:10:6 little endian</summary>
+            Axbxgxrx106106106106 = 0x30314241,
+            /// <summary>2x2 subsampled Cr:Cb plane</summary>
+            Nv15 = 0x3531564e,
+            Q410 = 0x30313451,
+            Q401 = 0x31303451,
+            /// <summary>[63:0] x:R:G:B 16:16:16:16 little endian</summary>
+            Xrgb16161616 = 0x38345258,
+            /// <summary>[63:0] x:B:G:R 16:16:16:16 little endian</summary>
+            Xbgr16161616 = 0x38344258,
+            /// <summary>[63:0] A:R:G:B 16:16:16:16 little endian</summary>
+            Argb16161616 = 0x38345241,
+            /// <summary>[63:0] A:B:G:R 16:16:16:16 little endian</summary>
+            Abgr16161616 = 0x38344241
         }
 
         class ProxyFactory : IBindFactory<WlShm>
@@ -727,10 +750,15 @@ namespace NWayland.Protocols.Wayland
 
     /// <summary>
     /// A buffer provides the content for a wl_surface. Buffers are
-    /// created through factory interfaces such as wl_drm, wl_shm or
-    /// similar. It has a width and a height and can be attached to a
-    /// wl_surface, but the mechanism by which a client provides and
-    /// updates the contents is defined by the buffer factory interface.
+    /// created through factory interfaces such as wl_shm, wp_linux_buffer_params
+    /// (from the linux-dmabuf protocol extension) or similar. It has a width and
+    /// a height and can be attached to a wl_surface, but the mechanism by which a
+    /// client provides and updates the contents is defined by the buffer factory
+    /// interface.
+    /// 
+    /// If the buffer uses a format that has an alpha channel, the alpha channel
+    /// is assumed to be premultiplied in the color channels unless otherwise
+    /// specified.
     /// </summary>
     public sealed unsafe partial class WlBuffer : NWayland.Protocols.Wayland.WlProxy
     {
@@ -949,13 +977,13 @@ namespace NWayland.Protocols.Wayland
         /// This request can only be made on drag-and-drop offers, a protocol error
         /// will be raised otherwise.
         /// </summary>
-        public void SetActions(uint @dndActions, uint @preferredAction)
+        public void SetActions(NWayland.Protocols.Wayland.WlDataDeviceManager.DndActionEnum @dndActions, NWayland.Protocols.Wayland.WlDataDeviceManager.DndActionEnum @preferredAction)
         {
             if (Version < 3)
                 throw new System.InvalidOperationException("Request set_actions is only supported since version 3");
             WlArgument* __args = stackalloc WlArgument[] {
-                @dndActions,
-                @preferredAction
+                (uint)@dndActions,
+                (uint)@preferredAction
             };
             LibWayland.wl_proxy_marshal_array(this.Handle, 4, __args);
         }
@@ -963,8 +991,8 @@ namespace NWayland.Protocols.Wayland
         public interface IEvents
         {
             void OnOffer(NWayland.Protocols.Wayland.WlDataOffer eventSender, System.String @mimeType);
-            void OnSourceActions(NWayland.Protocols.Wayland.WlDataOffer eventSender, uint @sourceActions);
-            void OnAction(NWayland.Protocols.Wayland.WlDataOffer eventSender, uint @dndAction);
+            void OnSourceActions(NWayland.Protocols.Wayland.WlDataOffer eventSender, NWayland.Protocols.Wayland.WlDataDeviceManager.DndActionEnum @sourceActions);
+            void OnAction(NWayland.Protocols.Wayland.WlDataOffer eventSender, NWayland.Protocols.Wayland.WlDataDeviceManager.DndActionEnum @dndAction);
         }
 
         public IEvents Events { get; set; }
@@ -974,9 +1002,9 @@ namespace NWayland.Protocols.Wayland
             if (opcode == 0)
                 Events?.OnOffer(this, System.Runtime.InteropServices.Marshal.PtrToStringAnsi(arguments[0].IntPtr));
             if (opcode == 1)
-                Events?.OnSourceActions(this, arguments[0].UInt32);
+                Events?.OnSourceActions(this, (NWayland.Protocols.Wayland.WlDataDeviceManager.DndActionEnum)arguments[0].UInt32);
             if (opcode == 2)
-                Events?.OnAction(this, arguments[0].UInt32);
+                Events?.OnAction(this, (NWayland.Protocols.Wayland.WlDataDeviceManager.DndActionEnum)arguments[0].UInt32);
         }
 
         public enum ErrorEnum
@@ -1084,12 +1112,12 @@ namespace NWayland.Protocols.Wayland
         /// wl_data_device.start_drag. Attempting to use the source other than
         /// for drag-and-drop will raise a protocol error.
         /// </summary>
-        public void SetActions(uint @dndActions)
+        public void SetActions(NWayland.Protocols.Wayland.WlDataDeviceManager.DndActionEnum @dndActions)
         {
             if (Version < 3)
                 throw new System.InvalidOperationException("Request set_actions is only supported since version 3");
             WlArgument* __args = stackalloc WlArgument[] {
-                @dndActions
+                (uint)@dndActions
             };
             LibWayland.wl_proxy_marshal_array(this.Handle, 2, __args);
         }
@@ -1101,7 +1129,7 @@ namespace NWayland.Protocols.Wayland
             void OnCancelled(NWayland.Protocols.Wayland.WlDataSource eventSender);
             void OnDndDropPerformed(NWayland.Protocols.Wayland.WlDataSource eventSender);
             void OnDndFinished(NWayland.Protocols.Wayland.WlDataSource eventSender);
-            void OnAction(NWayland.Protocols.Wayland.WlDataSource eventSender, uint @dndAction);
+            void OnAction(NWayland.Protocols.Wayland.WlDataSource eventSender, NWayland.Protocols.Wayland.WlDataDeviceManager.DndActionEnum @dndAction);
         }
 
         public IEvents Events { get; set; }
@@ -1119,7 +1147,7 @@ namespace NWayland.Protocols.Wayland
             if (opcode == 4)
                 Events?.OnDndFinished(this);
             if (opcode == 5)
-                Events?.OnAction(this, arguments[0].UInt32);
+                Events?.OnAction(this, (NWayland.Protocols.Wayland.WlDataDeviceManager.DndActionEnum)arguments[0].UInt32);
         }
 
         public enum ErrorEnum
@@ -1194,7 +1222,8 @@ namespace NWayland.Protocols.Wayland
         /// for the eventual data transfer. If source is NULL, enter, leave
         /// and motion events are sent only to the client that initiated the
         /// drag and the client is expected to handle the data passing
-        /// internally.
+        /// internally. If source is destroyed, the drag-and-drop session will be
+        /// cancelled.
         /// 
         /// The origin surface is the surface where the drag originates and
         /// the client must have an active implicit grab that matches the
@@ -1451,7 +1480,8 @@ namespace NWayland.Protocols.Wayland
     /// a basic surface.
     /// 
     /// Note! This protocol is deprecated and not intended for production use.
-    /// For desktop-style user interfaces, use xdg_shell.
+    /// For desktop-style user interfaces, use xdg_shell. Compositors and clients
+    /// should not implement this interface.
     /// </summary>
     public sealed unsafe partial class WlShell : NWayland.Protocols.Wayland.WlProxy
     {
@@ -1991,14 +2021,22 @@ namespace NWayland.Protocols.Wayland
         /// 
         /// The new size of the surface is calculated based on the buffer
         /// size transformed by the inverse buffer_transform and the
-        /// inverse buffer_scale. This means that the supplied buffer
-        /// must be an integer multiple of the buffer_scale.
+        /// inverse buffer_scale. This means that at commit time the supplied
+        /// buffer size must be an integer multiple of the buffer_scale. If
+        /// that's not the case, an invalid_size error is sent.
         /// 
         /// The x and y arguments specify the location of the new pending
         /// buffer's upper left corner, relative to the current buffer's upper
         /// left corner, in surface-local coordinates. In other words, the
         /// x and y, combined with the new surface size define in which
-        /// directions the surface's size changes.
+        /// directions the surface's size changes. Setting anything other than 0
+        /// as x and y arguments is discouraged, and should instead be replaced
+        /// with using the separate wl_surface.offset request.
+        /// 
+        /// When the bound wl_surface version is 5 or higher, passing any
+        /// non-zero x or y is a protocol violation, and will result in an
+        /// 'invalid_offset' error being raised. To achieve equivalent semantics,
+        /// use wl_surface.offset.
         /// 
         /// Surface contents are double-buffered state, see wl_surface.commit.
         /// 
@@ -2026,9 +2064,12 @@ namespace NWayland.Protocols.Wayland
         /// from the same backing storage or use wp_linux_buffer_release.
         /// 
         /// Destroying the wl_buffer after wl_buffer.release does not change
-        /// the surface contents. However, if the client destroys the
-        /// wl_buffer before receiving the wl_buffer.release event, the surface
-        /// contents become undefined immediately.
+        /// the surface contents. Destroying the wl_buffer before wl_buffer.release
+        /// is allowed as long as the underlying buffer storage isn't re-used (this
+        /// can happen e.g. on client process termination). However, if the client
+        /// destroys the wl_buffer before receiving the wl_buffer.release event and
+        /// mutates the underlying buffer storage, the surface contents become
+        /// undefined immediately.
         /// 
         /// If wl_surface.attach is sent with a NULL wl_buffer, the
         /// following wl_surface.commit will remove the surface content.
@@ -2341,6 +2382,31 @@ namespace NWayland.Protocols.Wayland
             LibWayland.wl_proxy_marshal_array(this.Handle, 9, __args);
         }
 
+        /// <summary>
+        /// The x and y arguments specify the location of the new pending
+        /// buffer's upper left corner, relative to the current buffer's upper
+        /// left corner, in surface-local coordinates. In other words, the
+        /// x and y, combined with the new surface size define in which
+        /// directions the surface's size changes.
+        /// 
+        /// Surface location offset is double-buffered state, see
+        /// wl_surface.commit.
+        /// 
+        /// This request is semantically equivalent to and the replaces the x and y
+        /// arguments in the wl_surface.attach request in wl_surface versions prior
+        /// to 5. See wl_surface.attach for details.
+        /// </summary>
+        public void Offset(int @x, int @y)
+        {
+            if (Version < 5)
+                throw new System.InvalidOperationException("Request offset is only supported since version 5");
+            WlArgument* __args = stackalloc WlArgument[] {
+                @x,
+                @y
+            };
+            LibWayland.wl_proxy_marshal_array(this.Handle, 10, __args);
+        }
+
         public interface IEvents
         {
             void OnEnter(NWayland.Protocols.Wayland.WlSurface eventSender, NWayland.Protocols.Wayland.WlOutput @output);
@@ -2365,7 +2431,11 @@ namespace NWayland.Protocols.Wayland
             /// <summary>buffer scale value is invalid</summary>
             InvalidScale = 0,
             /// <summary>buffer transform value is invalid</summary>
-            InvalidTransform = 1
+            InvalidTransform = 1,
+            /// <summary>buffer size is invalid</summary>
+            InvalidSize = 2,
+            /// <summary>buffer offset is invalid</summary>
+            InvalidOffset = 3
         }
 
         class ProxyFactory : IBindFactory<WlSurface>
@@ -2427,7 +2497,8 @@ namespace NWayland.Protocols.Wayland
         /// This request only takes effect if the seat has the pointer
         /// capability, or has had the pointer capability in the past.
         /// It is a protocol violation to issue this request on a seat that has
-        /// never had the pointer capability.
+        /// never had the pointer capability. The missing_capability error will
+        /// be sent in this case.
         /// </summary>
         public NWayland.Protocols.Wayland.WlPointer GetPointer()
         {
@@ -2445,7 +2516,8 @@ namespace NWayland.Protocols.Wayland
         /// This request only takes effect if the seat has the keyboard
         /// capability, or has had the keyboard capability in the past.
         /// It is a protocol violation to issue this request on a seat that has
-        /// never had the keyboard capability.
+        /// never had the keyboard capability. The missing_capability error will
+        /// be sent in this case.
         /// </summary>
         public NWayland.Protocols.Wayland.WlKeyboard GetKeyboard()
         {
@@ -2463,7 +2535,8 @@ namespace NWayland.Protocols.Wayland
         /// This request only takes effect if the seat has the touch
         /// capability, or has had the touch capability in the past.
         /// It is a protocol violation to issue this request on a seat that has
-        /// never had the touch capability.
+        /// never had the touch capability. The missing_capability error will
+        /// be sent in this case.
         /// </summary>
         public NWayland.Protocols.Wayland.WlTouch GetTouch()
         {
@@ -2512,6 +2585,15 @@ namespace NWayland.Protocols.Wayland
             Keyboard = 2,
             /// <summary>the seat has touch devices</summary>
             Touch = 4
+        }
+
+        /// <summary>
+        /// These errors can be emitted in response to wl_seat requests.
+        /// </summary>
+        public enum ErrorEnum
+        {
+            /// <summary>get_pointer, get_keyboard or get_touch called on seat without the matching capability</summary>
+            MissingCapability = 0
         }
 
         class ProxyFactory : IBindFactory<WlSeat>
@@ -2607,6 +2689,10 @@ namespace NWayland.Protocols.Wayland
         /// wl_surface is no longer used as the cursor. When the use as a
         /// cursor ends, the current and pending input regions become
         /// undefined, and the wl_surface is unmapped.
+        /// 
+        /// The serial parameter must match the latest wl_pointer.enter
+        /// serial number sent to the client. Otherwise the request will be
+        /// ignored.
         /// </summary>
         public void SetCursor(uint @serial, NWayland.Protocols.Wayland.WlSurface @surface, int @hotspotX, int @hotspotY)
         {
@@ -2822,7 +2908,7 @@ namespace NWayland.Protocols.Wayland
         {
             /// <summary>no keymap; client must understand how to interpret the raw keycode</summary>
             NoKeymap = 0,
-            /// <summary>libxkbcommon compatible; to determine the xkb keycode, clients must add 8 to the key event keycode</summary>
+            /// <summary>libxkbcommon compatible, null-terminated string; to determine the xkb keycode, clients must add 8 to the key event keycode</summary>
             XkbV1 = 1
         }
 
@@ -3340,7 +3426,7 @@ namespace NWayland.Protocols.Wayland
     /// wl_surface state directly. A sub-surface is initially in the
     /// synchronized mode.
     /// 
-    /// Sub-surfaces have also other kind of state, which is managed by
+    /// Sub-surfaces also have another kind of state, which is managed by
     /// wl_subsurface requests, as opposed to wl_surface requests. This
     /// state includes the sub-surface position relative to the parent
     /// surface (wl_subsurface.set_position), and the stacking order of

@@ -856,14 +856,14 @@ namespace NWayland.Protocols.XdgShell
         /// use this information to adapt its behavior, e.g. choose an
         /// appropriate cursor image.
         /// </summary>
-        public void Resize(NWayland.Protocols.Wayland.WlSeat @seat, uint @serial, uint @edges)
+        public void Resize(NWayland.Protocols.Wayland.WlSeat @seat, uint @serial, ResizeEdgeEnum @edges)
         {
             if (@seat == null)
                 throw new System.ArgumentNullException("seat");
             WlArgument* __args = stackalloc WlArgument[] {
                 @seat,
                 @serial,
-                @edges
+                (uint)@edges
             };
             LibWayland.wl_proxy_marshal_array(this.Handle, 6, __args);
         }
@@ -1096,7 +1096,7 @@ namespace NWayland.Protocols.XdgShell
 
         public interface IEvents
         {
-            void OnConfigure(NWayland.Protocols.XdgShell.XdgToplevel eventSender, int @width, int @height, ReadOnlySpan<byte> @states);
+            void OnConfigure(NWayland.Protocols.XdgShell.XdgToplevel eventSender, int @width, int @height, ReadOnlySpan<StateEnum> @states);
             void OnClose(NWayland.Protocols.XdgShell.XdgToplevel eventSender);
         }
 
@@ -1105,7 +1105,7 @@ namespace NWayland.Protocols.XdgShell
         protected override void DispatchEvent(uint opcode, WlArgument* arguments)
         {
             if (opcode == 0)
-                Events?.OnConfigure(this, arguments[0].Int32, arguments[1].Int32, NWayland.Interop.WlArray.SpanFromWlArrayPtr<byte>(arguments[2].IntPtr));
+                Events?.OnConfigure(this, arguments[0].Int32, arguments[1].Int32, NWayland.Interop.WlArray.SpanFromWlArrayPtr<StateEnum>(arguments[2].IntPtr));
             if (opcode == 1)
                 Events?.OnClose(this);
         }
@@ -1197,12 +1197,6 @@ namespace NWayland.Protocols.XdgShell
     /// 
     /// The parent of an xdg_popup must be mapped (see the xdg_surface
     /// description) before the xdg_popup itself.
-    /// 
-    /// The x and y arguments passed when creating the popup object specify
-    /// where the top left of the popup should be placed, relative to the
-    /// local surface coordinates of the parent surface. See
-    /// xdg_surface.get_popup. An xdg_popup must intersect with or be at least
-    /// partially adjacent to its parent surface.
     /// 
     /// The client must call wl_surface.commit on the corresponding wl_surface
     /// for the xdg_popup state to take effect.
